@@ -87,12 +87,16 @@ void ABLeMH1::decode_status_report_(const uint8_t *data, uint16_t datalength) {
   this->publish_state_(this->duty_cycle_reduced_, (data[2] & 0x40) >> 6);
   this->publish_state_(this->ucp_status_sensor_, (data[2] & 0x80) >> 7);
   if ((STATECODE[x] == 0xC2) || (STATECODE[x] == 0xC3) || (STATECODE[x] == 0xC4)) {
-    this->publish_state_(this->l3_current_sensor_,
-                         ((data[4] << 8) + data[5]) / 10.0);
-    this->publish_state_(this->l2_current_sensor_,
-                         ((data[6] << 8) + data[7]) / 10.0);
-    this->publish_state_(this->l1_current_sensor_,
-                         ((data[8] << 8) + data[9]) / 10.0);
+    // eliminate 100A error
+    double l1c = ((data[8] << 8) + data[9]) / 10.0;
+    double l2c = ((data[6] << 8) + data[7]) / 10.0;
+    double l3c = ((data[4] << 8) + data[5]) / 10.0;
+    l1c = l1c > 32.0 ? 0.0 : l1c;
+    l2c = l2c > 32.0 ? 0.0 : l2c;
+    l3c = l3c > 32.0 ? 0.0 : l3c;
+    this->publish_state_(this->l1_current_sensor_, l1c);
+    this->publish_state_(this->l2_current_sensor_, l2c);
+    this->publish_state_(this->l3_current_sensor_, l3c);
   } else {
     this->publish_state_(this->l1_current_sensor_, 0.0);
     this->publish_state_(this->l2_current_sensor_, 0.0);

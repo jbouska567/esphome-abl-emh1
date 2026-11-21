@@ -251,7 +251,7 @@ number:
     update_interval: 10s
     set_action:
       lambda: |-
-        ESP_LOGD("main", "Sending modbus value = %d", std::lround(x));
+        ESP_LOGD("main", "Sending modbus value = %ld", std::lround(x));
         id(modbus0)->send_current(std::lround(x));
 
 switch:

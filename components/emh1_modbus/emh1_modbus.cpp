@@ -167,7 +167,6 @@ bool eMH1Modbus::parse_emh1_modbus_byte_(uint8_t byte) {
 void eMH1Modbus::dump_config() {
   ESP_LOGCONFIG(TAG, "eMH1Modbus:");
   LOG_PIN("  Flow Control Pin: ", this->flow_control_pin_);
-  this->check_uart_settings(38400);
 }
 
 float eMH1Modbus::get_setup_priority() const {

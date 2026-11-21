@@ -27,6 +27,15 @@ CONFIG_SCHEMA = (
     .extend(uart.UART_DEVICE_SCHEMA)
 )
 
+FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
+    "emh1_modbus",
+    baud_rate=38400,
+    require_tx=True,
+    require_rx=True,
+    data_bits=8,
+    stop_bits=1,
+)
+
 
 def as_hex_array(value):
     cpp_array = [

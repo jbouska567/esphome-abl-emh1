@@ -117,7 +117,7 @@ emh1_modbus:
 
 abl_emh1:
   emh1_modbus_id: modbus0
-  update_interval: 10s
+  update_interval: 5s
 
 preferences:
   flash_write_interval: 5min

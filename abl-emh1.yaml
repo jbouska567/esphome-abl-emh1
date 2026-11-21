@@ -1,61 +1,123 @@
 substitutions:
-  name: abl_emh1
-  device_description: "Monitor and configure ABL eMH1 Charger via RS485/Modbus-ASCII"
-  external_components_source: github://jrv/esphome-abl-emh1@main
+  name: "esplan-abl-emh1"
+  mac_addr: "8C:4F:00:3D:15:50"
+  device_description: "Monitor and configure ABL eMH1 Wallbox via RS485/Modbus-ASCII/Ethernet"
+  short_name: "ABL eMH1 Wallbox"
+  # external_components_source: https://github.com/jrv/esphome-abl-emh1
+  # with my hotfix
+  external_components_source: https://github.com/jbouska567/esphome-abl-emh1
   tx_pin: "17"
   rx_pin: "16"
-  flow_control_pin: "5"
-  wallbox_min_current: "0"
-  wallbox_max_current: "32"
+  #flow_control_pin: "5"
 
 esphome:
   name: ${name}
   comment: ${device_description}
-  friendly_name: ABL eMH1
+  friendly_name: ${short_name}
   project:
     name: "jrv.esphome-abl-emh1"
     version: 0.0.1
-  on_boot:
-    - number.set:
-        id: set_current
-        value: 16
+  # odsunuti komunikace s HA API na druhe jadro ESP32
+  platformio_options:
+    build_flags:
+      - -DCONFIG_ARDUINO_RUNNING_CORE=1
+      - -DCONFIG_ASYNC_TCP_RUNNING_CORE=1
 
 esp32:
-  board: esp32dev
+  board: esp32doit-devkit-v1
+  framework:
+    #type: arduino
+    type: esp-idf
 
 external_components:
-  - source: ${external_components_source}
+  source:
+    type: local
+    path: git/jrv/esphome-abl-emh1/components
+#  source:
+#    type: git
+#    url: ${external_components_source}
+#    ref: main
+  refresh: 0s
 
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-
-ota:
-  - platform: esphome
-    password: !secret ota_password
-
+# Enable logging
 logger:
   level: DEBUG
+#  level: VERY_VERBOSE
+#  hardware_uart: UART2
+#  baud_rate: 38400
+debug:
+  update_interval: 15s
 
+# Enable Home Assistant API
 api:
+#  port: 6053
+#  batch_delay: 50ms  # Reduce latency for real-time applications
+#  listen_backlog: 2  # Allow 2 pending connections in queue
+#  max_connections: 6  # Allow up to 6 simultaneous connections
+#  max_send_queue: 10  # Maximum queued messages per connection before disconnect
   encryption:
-    key: !secret api_key
+    key: !secret esplan_abl_emh1__encryption_key
+  reboot_timeout: 5min
+  # Zvýšení tolerance pro odpojení
+  #keepalive: 60s
+
+ota:
+  platform: esphome
+  encryption:
+
+wifi:
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ABL-Wallbox-Fallback-aa2c
+    password: !secret esplan_abl_emh1__ap_password
+
+# wifi component above is required for captive portal below
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+web_server:
+  #port: 18080
+  auth:
+    username: admin
+    password: !secret esplan_abl_emh1__web_password
+prometheus:
+
+one_wire:
+  - platform: gpio
+    pin: GPIO4
+    id: one_wire_bus
 
 uart:
   id: uart_2
   baud_rate: 38400
-  tx_pin: ${tx_pin}
-  rx_pin: ${rx_pin}
+  tx_pin: GPIO17
+  rx_pin: GPIO16
   parity: EVEN
+  stop_bits: 1
+  #rx_buffer_size: 512
+#  debug:
+#    direction: BOTH
+#    dummy_receiver: false
+#    after:
+#      delimiter: "\r\n"
+#    sequence:
+#      - lambda: UARTDebug::log_string(direction, bytes);
 
 emh1_modbus:
     uart_id: uart_2
-    flow_control_pin: ${flow_control_pin}
+    #flow_control_pin: ${flow_control_pin}
     id: modbus0
 
 abl_emh1:
   emh1_modbus_id: modbus0
-  update_interval: 5s
+  update_interval: 10s
 
 preferences:
   flash_write_interval: 5min
@@ -64,9 +126,31 @@ text_sensor:
   - platform: abl_emh1
     mode:
       name: "Status"
-    serial_number:
-      name: "Serial number"
-      disabled_by_default: true
+# serial number breaks connection:
+# Invalid protobuf message: type=TextSensorStateResponse data=b'\r\x07\x06\x92\x18\x12\x0e\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+#    serial_number:
+#      name: "Serial number"
+#      disabled_by_default: true
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+      address_0:
+        name: ESP IP Address 0
+    ssid:
+      name: ESP Connected SSID
+    bssid:
+      name: ESP Connected BSSID
+    mac_address:
+      name: ESP Mac Wifi Address
+    scan_results:
+      name: ESP Latest Scan Results
+    dns_address:
+      name: ESP DNS Address
   - platform: template
     name: Chargemode
     id: chargemode
@@ -83,38 +167,41 @@ text_sensor:
         if (id(l3_current).state > 1.0)
           phaseCnt++;
       }
-      switch (phaseCnt) {
+      std::string result;
+      switch (phaseCnt){
         case 0:
-          return {"None"};
+          result = "None";
+          break;
         case 1:
-          return {"1 Phase"};
+          result = "1 Phase";
+          break;
         default:
-          return {"3 Phase"};
+          result = "3 Phase";
       }
+      return result;
 
 sensor:
   - platform: abl_emh1
     l1_current:
       name: "L1 current"
       state_class: "measurement"
-      accuracy_decimals: 1
+      accuracy_decimals: 2
       id: l1_current
     l2_current:
       name: "L2 current"
       state_class: "measurement"
-      accuracy_decimals: 1
+      accuracy_decimals: 2
       id: l2_current
     l3_current:
       name: "L3 current"
       state_class: "measurement"
-      accuracy_decimals: 1
+      accuracy_decimals: 2
       id: l3_current
     max_current:
       name: "Max current"
       state_class: "measurement"
       id: max_current
-      disabled_by_default: true
-      accuracy_decimals: 1
+      accuracy_decimals: 0
     en1_status:
       name: "EN1 status"
       disabled_by_default: true
@@ -125,43 +212,54 @@ sensor:
       name: "Reduced Duty Cycle (max_current)"
       disabled_by_default: true
     ucp_status:
-      name: "EV Connected (UCP <= 10V)"
+      name: "Ucp Status <= 10V"
+      disabled_by_default: true
     outlet_state:
       name: "Outlet state"
       disabled_by_default: true
       id: outlet_state
-    charging_allowed:
-      name: "Charging allowed"
-      disabled_by_default: true
-      id: charging_allowed
+  #- platform: dallas_temp
+    #address: 0x1234567890abcdef
+    #name: "ABL Temperature"
   - platform: uptime
     name: Uptime Sensor
     id: abl_uptime
     update_interval: 15s
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      name: "Loop Time"
+
 
 number:
   - platform: template
-    name: "Max Amps"
+    name: "Current"
     id: set_current
     icon: mdi:arrow-oscillating
-    min_value: ${wallbox_min_current}
-    max_value: ${wallbox_max_current}
-    step: 0.1
+    min_value: 6
+    max_value: 16
+    step: 1
+    mode: slider
+    unit_of_measurement: "A"
     optimistic: false
-    lambda: 'return std::lround(id(max_current).state);'
+    lambda: |-
+      double c = std::lround(id(max_current).state);
+      return c > 32 ? 0 : c;
     update_interval: 10s
     set_action:
       lambda: |-
-        ESP_LOGD("main", "Sending modbus value = %.2f", x);
-        id(modbus0)->send_current(x);
+        ESP_LOGD("main", "Sending modbus value = %d", std::lround(x));
+        id(modbus0)->send_current(std::lround(x));
 
 switch:
   - platform: template
     name: "Enable"
     id: enable_switch
     icon: "mdi:power"
-    restore_mode: DISABLED
-    lambda: 'return (id(outlet_state).state != 0xE0);'
+    lambda: 'return !(id(outlet_state).state == 0xE0 || id(outlet_state).state == 0x00);'
     turn_off_action:
       - lambda: |-
           if ((id(abl_uptime).state > 10.0) && (id(outlet_state).state != NAN))
@@ -170,22 +268,3 @@ switch:
       - lambda: |-
           if ((id(abl_uptime).state > 10.0) && (id(outlet_state).state != NAN))
             id(modbus0)->send_enable(1);
-  - platform: template
-    name: "Allow charging"
-    id: allow_charging_switch
-    icon: "mdi:power"
-    restore_mode: DISABLED
-    lambda: 'return id(charging_allowed).state == 1;'
-    turn_on_action:
-      - lambda: |-
-          if (id(outlet_state).state == NAN) return;
-          int state = std::roundl(id(charging_allowed).state);
-          ESP_LOGD("main", "Allow charging turn on. Current state is: %d", state);
-          if (state <= 0) id(modbus0)->send_current(${wallbox_max_current});
-    turn_off_action:
-      - lambda: |-
-          if (id(outlet_state).state == NAN) return;
-          int state = std::roundl(id(charging_allowed).state);
-          ESP_LOGD("main", "Allow charging turn off. Current state is: %d", state);
-          if (state > 0) id(modbus0)->send_charging_disable();
-
